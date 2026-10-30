@@ -126,3 +126,25 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
             port['id'], lambda p: p['binding:vif_type'] == 'unbound',
             'unbound')
         self.assertEqual([client_id_opt], port['extra_dhcp_opts'])
+
+    @decorators.idempotent_id('4af59539-ef79-4c39-986c-76e5e714138c')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_keep_user_client_id_on_infiniband_port(self):
+        """Check that an InfiniBand port keeps a client ID set by the user.
+
+        The mechanism driver only adds its generated client-id option to a
+        port that has no client-id set by the user, and only removes its
+        generated one on unbind.
+        """
+        client_id = 'tempest-client-id'
+        port = self.create_infiniband_port(extra_dhcp_opts=[
+            {'opt_name': 'client-id', 'opt_value': client_id,
+             'ip_version': 4}])
+        server = self.create_server([port])
+
+        port = self.wait_for_port_bound(port['id'])
+        self.assert_port_bound(port, server, user_client_id=client_id)
+
+        self.delete_server(server)
+        port = self.wait_for_port_unbound(port['id'])
+        self.assert_port_unbound(port, user_client_id=client_id)
