@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from tempest.common import utils
 from tempest.common import waiters
 from tempest.lib import decorators
 
@@ -59,3 +60,69 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
             resp.response['x-openstack-request-id'])
         port = self.wait_for_port_unbound(port['id'])
         self.assert_port_unbound(port)
+
+    @decorators.idempotent_id('83ffabed-d462-4d73-a386-d059384b4c5d')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_unbind_keeps_other_dhcp_options(self):
+        """Check that unbinding a port only removes the client ID.
+
+        The mechanism driver removes the client-id DHCP option it added
+        when the port is unbound, and must leave the port's other options.
+        """
+        tftp_opt = {'opt_name': 'tftp-server', 'opt_value': '192.0.2.1',
+                    'ip_version': 4}
+        port = self.create_infiniband_port(extra_dhcp_opts=[tftp_opt])
+        server = self.create_server([port])
+
+        port = self.wait_for_port_bound(port['id'])
+        self.assert_port_bound(port, server)
+        self.assertIn(tftp_opt, port['extra_dhcp_opts'])
+
+        self.delete_server(server)
+        port = self.wait_for_port_unbound(port['id'])
+        self.assert_port_unbound(port)
+        self.assertEqual([tftp_opt], port['extra_dhcp_opts'])
+
+    @decorators.idempotent_id('82ba2c91-6f30-4a3b-a278-092024c230a0')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_client_id_only_on_infiniband_ports(self):
+        """Check that only the server's InfiniBand port gets a client ID.
+
+        ML2 calls the mechanism driver for every port, and the driver must
+        not add its client-id option to ports it can't bind, such as the
+        server's port on a project network.
+        """
+        project_port = self.create_project_port()
+        infiniband_port = self.create_infiniband_port()
+        server = self.create_server([infiniband_port, project_port])
+
+        infiniband_port = self.wait_for_port_bound(infiniband_port['id'])
+        self.assert_port_bound(infiniband_port, server)
+        project_port = self.wait_for_port(
+            project_port['id'], lambda p: p['status'] == 'ACTIVE', 'ACTIVE')
+        self.assertNotEqual(base.VIF_TYPE, project_port['binding:vif_type'])
+        self.assert_no_client_id(project_port)
+
+    @decorators.idempotent_id('3bd33b98-1017-4b50-948c-4abce9c9abae')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_keep_user_client_id(self):
+        """Check that a client ID set by the user is kept.
+
+        The mechanism driver must not replace a client-id option set on a
+        port it doesn't bind, and on unbind it must only remove a client-id
+        with the value it generates.
+        """
+        client_id_opt = {'opt_name': 'client-id',
+                         'opt_value': 'tempest-client-id', 'ip_version': 4}
+        port = self.create_project_port(extra_dhcp_opts=[client_id_opt])
+        server = self.create_server([port])
+
+        port = self.wait_for_port(
+            port['id'], lambda p: p['status'] == 'ACTIVE', 'ACTIVE')
+        self.assertEqual([client_id_opt], port['extra_dhcp_opts'])
+
+        self.delete_server(server)
+        port = self.wait_for_port(
+            port['id'], lambda p: p['binding:vif_type'] == 'unbound',
+            'unbound')
+        self.assertEqual([client_id_opt], port['extra_dhcp_opts'])
