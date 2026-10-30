@@ -91,6 +91,9 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
         cls.admin_ports_client = cls.os_admin.ports_client
         cls.admin_servers_client = cls.os_admin.servers_client
         cls.servers_client = cls.os_primary.servers_client
+        cls.networks_client = cls.os_primary.networks_client
+        cls.subnets_client = cls.os_primary.subnets_client
+        cls.ports_client = cls.os_primary.ports_client
         cls.interfaces_client = cls.os_primary.interfaces_client
 
     @classmethod
@@ -170,6 +173,45 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
         port = self.admin_ports_client.create_port(**kwargs)['port']
         self.addCleanup(test_utils.call_and_ignore_notfound_exc,
                         self.admin_ports_client.delete_port, port['id'])
+        return port
+
+    def create_project_port(self, **kwargs):
+        """Create a port on a new project network.
+
+        The network has the default project network type, so the test is
+        skipped if that puts it on a physical network that a Mellanox
+        agent maps, where the mechanism driver could bind its ports.
+        """
+        name = self.__class__.__name__
+        network = self.networks_client.create_network(
+            name=data_utils.rand_name(name + '-project-network'))['network']
+        self.addCleanup(test_utils.call_and_ignore_notfound_exc,
+                        self.networks_client.delete_network, network['id'])
+        physnet = self.admin_networks_client.show_network(
+            network['id'])['network'].get('provider:physical_network')
+        agents = self.admin_agents_client.list_agents(
+            agent_type=AGENT_TYPE)['agents']
+        mlnx_physnets = {physnet for agent in agents
+                         for physnet in agent['configurations'].get(
+                             'interface_mappings', {})}
+        if physnet in mlnx_physnets:
+            raise self.skipException(
+                'Project networks are on physical network %s, which a '
+                'Mellanox agent maps' % physnet)
+        subnet = self.subnets_client.create_subnet(
+            network_id=network['id'],
+            name=data_utils.rand_name(name + '-project-subnet'),
+            cidr=CONF.network.project_network_cidr,
+            ip_version=4,
+            enable_dhcp=False)['subnet']
+        self.addCleanup(test_utils.call_and_ignore_notfound_exc,
+                        self.subnets_client.delete_subnet, subnet['id'])
+        port = self.ports_client.create_port(
+            network_id=network['id'],
+            name=data_utils.rand_name(name + '-project-port'),
+            **kwargs)['port']
+        self.addCleanup(test_utils.call_and_ignore_notfound_exc,
+                        self.ports_client.delete_port, port['id'])
         return port
 
     def create_server(self, ports):

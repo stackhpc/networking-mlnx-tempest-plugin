@@ -82,3 +82,23 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
         port = self.wait_for_port_unbound(port['id'])
         self.assert_port_unbound(port)
         self.assertEqual([tftp_opt], port['extra_dhcp_opts'])
+
+    @decorators.idempotent_id('82ba2c91-6f30-4a3b-a278-092024c230a0')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_client_id_only_on_infiniband_ports(self):
+        """Check that only the server's InfiniBand port gets a client ID.
+
+        ML2 calls the mechanism driver for every port, and the driver must
+        not add its client-id option to ports it can't bind, such as the
+        server's port on a project network.
+        """
+        project_port = self.create_project_port()
+        infiniband_port = self.create_infiniband_port()
+        server = self.create_server([infiniband_port, project_port])
+
+        infiniband_port = self.wait_for_port_bound(infiniband_port['id'])
+        self.assert_port_bound(infiniband_port, server)
+        project_port = self.wait_for_port(
+            project_port['id'], lambda p: p['status'] == 'ACTIVE', 'ACTIVE')
+        self.assertNotEqual(base.VIF_TYPE, project_port['binding:vif_type'])
+        self.assert_no_client_id(project_port)
