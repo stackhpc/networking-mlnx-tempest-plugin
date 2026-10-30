@@ -1,0 +1,11 @@
+---
+- project:
+    templates:
+      - build-openstack-docs-pti
+      - release-notes-jobs-python3
+    check:
+      jobs:
+        - openstack-tox-pep8
+    gate:
+      jobs:
+        - openstack-tox-pep8

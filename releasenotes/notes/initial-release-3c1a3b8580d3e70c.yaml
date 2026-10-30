@@ -1,0 +1,10 @@
+---
+prelude: >
+  First release of networking-mlnx-tempest-plugin, with tests for the
+  ``mlnx_infiniband`` mechanism driver on InfiniBand SR-IOV hardware.
+features:
+  - |
+    Adds an API test that checks ``neutron-mlnx-agent``, and scenario tests
+    that boot servers with InfiniBand ports and attach and detach them. Set
+    ``[service_available] networking_mlnx`` and ``[networking_mlnx]
+    physical_network`` in ``tempest.conf`` to run them.

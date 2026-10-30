@@ -1,0 +1,61 @@
+# Licensed under the Apache License, Version 2.0 (the "License"); you may
+# not use this file except in compliance with the License. You may obtain
+# a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+# WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+# License for the specific language governing permissions and limitations
+# under the License.
+
+from tempest.common import waiters
+from tempest.lib import decorators
+
+from networking_mlnx_tempest_plugin.tests import base
+
+
+# Neutron allows only one flat network on each physical network, and each
+# test uses InfiniBand virtual functions, of which hosts have only a few.
+@decorators.serial
+class InfinibandPortTest(base.BaseInfinibandPortTest):
+
+    @decorators.idempotent_id('6baa299b-d8cb-4c1e-9fbd-ac7a4e5a05ea')
+    def test_boot_server_with_infiniband_port(self):
+        """Boot a server with an InfiniBand port, then delete it.
+
+        The port is bound to a virtual function on the server's host while
+        the server exists, and released when it is deleted.
+        """
+        port = self.create_infiniband_port()
+        server = self.create_server([port])
+
+        port = self.wait_for_port_bound(port['id'])
+        self.assert_port_bound(port, server)
+
+        self.delete_server(server)
+        port = self.wait_for_port_unbound(port['id'])
+        self.assert_port_unbound(port)
+
+    @decorators.idempotent_id('ac92df01-d192-4faf-a5ee-673ca6bdbe4e')
+    def test_attach_detach_infiniband_port(self):
+        """Attach an InfiniBand port to a running server, then detach it."""
+        server = self.create_server([self.create_infiniband_port()])
+        port = self.create_infiniband_port()
+
+        self.interfaces_client.create_interface(server['id'],
+                                                port_id=port['id'])
+        waiters.wait_for_interface_status(self.interfaces_client,
+                                          server['id'], port['id'], 'ACTIVE')
+        port = self.wait_for_port_bound(port['id'])
+        self.assert_port_bound(port, server)
+
+        resp = self.interfaces_client.delete_interface(server['id'],
+                                                       port['id'])
+        # Instance action events are only shown to admins.
+        waiters.wait_for_interface_detach(
+            self.admin_servers_client, server['id'], port['id'],
+            resp.response['x-openstack-request-id'])
+        port = self.wait_for_port_unbound(port['id'])
+        self.assert_port_unbound(port)
