@@ -256,7 +256,14 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
         self.assertIn(client_ids[0], expected,
                       'client-id does not match MAC address %s' % mac)
 
+    def assert_no_client_id(self, port):
+        self.assertNotIn('client-id',
+                         [opt['opt_name'] for opt in port['extra_dhcp_opts']],
+                         port['extra_dhcp_opts'])
+
     def assert_port_unbound(self, port):
         self.assertEqual('', port['device_id'])
         self.assertEqual('', port['binding:host_id'])
         self.assertNotIn('pci_slot', port['binding:profile'])
+        if utils.is_extension_enabled('extra_dhcp_opt', 'network'):
+            self.assert_no_client_id(port)
