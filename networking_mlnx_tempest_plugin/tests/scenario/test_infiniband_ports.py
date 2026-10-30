@@ -102,3 +102,27 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
             project_port['id'], lambda p: p['status'] == 'ACTIVE', 'ACTIVE')
         self.assertNotEqual(base.VIF_TYPE, project_port['binding:vif_type'])
         self.assert_no_client_id(project_port)
+
+    @decorators.idempotent_id('3bd33b98-1017-4b50-948c-4abce9c9abae')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_keep_user_client_id(self):
+        """Check that a client ID set by the user is kept.
+
+        The mechanism driver must not replace a client-id option set on a
+        port it doesn't bind, and on unbind it must only remove a client-id
+        with the value it generates.
+        """
+        client_id_opt = {'opt_name': 'client-id',
+                         'opt_value': 'tempest-client-id', 'ip_version': 4}
+        port = self.create_project_port(extra_dhcp_opts=[client_id_opt])
+        server = self.create_server([port])
+
+        port = self.wait_for_port(
+            port['id'], lambda p: p['status'] == 'ACTIVE', 'ACTIVE')
+        self.assertEqual([client_id_opt], port['extra_dhcp_opts'])
+
+        self.delete_server(server)
+        port = self.wait_for_port(
+            port['id'], lambda p: p['binding:vif_type'] == 'unbound',
+            'unbound')
+        self.assertEqual([client_id_opt], port['extra_dhcp_opts'])
