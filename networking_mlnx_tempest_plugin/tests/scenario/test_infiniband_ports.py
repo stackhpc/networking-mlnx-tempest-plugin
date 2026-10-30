@@ -10,6 +10,7 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+from tempest.common import utils
 from tempest.common import waiters
 from tempest.lib import decorators
 
@@ -59,3 +60,25 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
             resp.response['x-openstack-request-id'])
         port = self.wait_for_port_unbound(port['id'])
         self.assert_port_unbound(port)
+
+    @decorators.idempotent_id('83ffabed-d462-4d73-a386-d059384b4c5d')
+    @utils.requires_ext(extension='extra_dhcp_opt', service='network')
+    def test_unbind_keeps_other_dhcp_options(self):
+        """Check that unbinding a port only removes the client ID.
+
+        The mechanism driver removes the client-id DHCP option it added
+        when the port is unbound, and must leave the port's other options.
+        """
+        tftp_opt = {'opt_name': 'tftp-server', 'opt_value': '192.0.2.1',
+                    'ip_version': 4}
+        port = self.create_infiniband_port(extra_dhcp_opts=[tftp_opt])
+        server = self.create_server([port])
+
+        port = self.wait_for_port_bound(port['id'])
+        self.assert_port_bound(port, server)
+        self.assertIn(tftp_opt, port['extra_dhcp_opts'])
+
+        self.delete_server(server)
+        port = self.wait_for_port_unbound(port['id'])
+        self.assert_port_unbound(port)
+        self.assertEqual([tftp_opt], port['extra_dhcp_opts'])

@@ -157,7 +157,7 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
             cls.admin_subnets_client.delete_subnet, subnet['id'])
         return network
 
-    def create_infiniband_port(self):
+    def create_infiniband_port(self, **extra):
         kwargs = {
             'network_id': self.network['id'],
             'name': data_utils.rand_name(self.__class__.__name__ + '-port'),
@@ -166,6 +166,7 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
         }
         if utils.is_extension_enabled('port-security', 'network'):
             kwargs['port_security_enabled'] = False
+        kwargs.update(extra)
         port = self.admin_ports_client.create_port(**kwargs)['port']
         self.addCleanup(test_utils.call_and_ignore_notfound_exc,
                         self.admin_ports_client.delete_port, port['id'])
