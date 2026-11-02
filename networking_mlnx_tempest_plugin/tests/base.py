@@ -267,8 +267,12 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
                        p['binding:vif_type'] == 'unbound'),
             'DOWN and unbound')
 
-    def assert_port_bound(self, port, server):
-        """Check that port is bound to a VF on the server's host."""
+    def assert_port_bound(self, port, server, user_client_id=None):
+        """Check that port is bound to a VF on the server's host.
+
+        If user_client_id is given, the port must have that client-id
+        rather than the one the mechanism driver generates.
+        """
         physnet = CONF.networking_mlnx.physical_network
         self.assertEqual(server['id'], port['device_id'])
         self.assertEqual(VIF_TYPE, port['binding:vif_type'])
@@ -281,7 +285,16 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
         self.assertIn('pci_slot', profile)
         self.assertEqual(physnet, profile.get('physical_network'))
         if utils.is_extension_enabled('extra_dhcp_opt', 'network'):
-            self.assert_client_id(port)
+            if user_client_id is None:
+                self.assert_client_id(port)
+            else:
+                self.assert_user_client_id(port, user_client_id)
+
+    def assert_user_client_id(self, port, client_id):
+        """Check that the port has client_id as its only client ID."""
+        client_ids = [opt['opt_value'] for opt in port['extra_dhcp_opts']
+                      if opt['opt_name'] == 'client-id']
+        self.assertEqual([client_id], client_ids, port['extra_dhcp_opts'])
 
     def assert_client_id(self, port):
         """Check the DHCP client ID that the mechanism driver sets.
@@ -304,9 +317,12 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
                          [opt['opt_name'] for opt in port['extra_dhcp_opts']],
                          port['extra_dhcp_opts'])
 
-    def assert_port_unbound(self, port):
+    def assert_port_unbound(self, port, user_client_id=None):
         self.assertEqual('', port['device_id'])
         self.assertEqual('', port['binding:host_id'])
         self.assertNotIn('pci_slot', port['binding:profile'])
         if utils.is_extension_enabled('extra_dhcp_opt', 'network'):
-            self.assert_no_client_id(port)
+            if user_client_id is None:
+                self.assert_no_client_id(port)
+            else:
+                self.assert_user_client_id(port, user_client_id)
