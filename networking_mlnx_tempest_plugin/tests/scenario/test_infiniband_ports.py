@@ -13,6 +13,7 @@
 from tempest.common import utils
 from tempest.common import waiters
 from tempest.lib import decorators
+from tempest.lib import exceptions as lib_exc
 
 from networking_mlnx_tempest_plugin.tests import base
 
@@ -114,7 +115,18 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
         """
         client_id_opt = {'opt_name': 'client-id',
                          'opt_value': 'tempest-client-id', 'ip_version': 4}
-        port = self.create_project_port(extra_dhcp_opts=[client_id_opt])
+        # The port is on a project network, so whether mlnx_sdn_assist
+        # syncs the InfiniBand network doesn't matter: only whether it
+        # syncs the project network, for example with [sdn]
+        # physical_networks = *.
+        try:
+            port = self.create_project_port(extra_dhcp_opts=[client_id_opt])
+        except lib_exc.BadRequest as exc:
+            if not base.is_client_id_refusal(exc):
+                raise
+            raise self.skipException(
+                'mlnx_sdn_assist syncs the project network, so the project '
+                "can't set a DHCP client ID on its port: %s" % exc)
         server = self.create_server([port])
 
         port = self.wait_for_port(
@@ -136,6 +148,14 @@ class InfinibandPortTest(base.BaseInfinibandPortTest):
         port that has no client-id set by the user, and only removes its
         generated one on unbind.
         """
+        if self.is_client_id_restricted(self.network['id']):
+            raise self.skipException(
+                'mlnx_sdn_assist restricts client IDs on the InfiniBand '
+                "network, so it doesn't bind a direct port whose DHCP "
+                "client ID isn't the one derived from its MAC address, "
+                'since the SDN controller '
+                'would add that GUID to the partition key instead of the '
+                "virtual function's")
         client_id = 'tempest-client-id'
         port = self.create_infiniband_port(extra_dhcp_opts=[
             {'opt_name': 'client-id', 'opt_value': client_id,

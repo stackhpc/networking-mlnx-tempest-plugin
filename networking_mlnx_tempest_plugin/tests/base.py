@@ -29,6 +29,11 @@ VNIC_TYPE = 'direct'
 CLIENT_ID_PREFIXES = ('20:', 'ff:00:00:00:00:00:02:00:00:02:c9:00:')
 
 
+def is_client_id_refusal(exc):
+    """Check if a BadRequest is mlnx_sdn_assist refusing a client ID."""
+    return 'client id' in str(exc).lower()
+
+
 class BaseInfinibandTest(test.BaseTestCase):
     """Base class for tests that need networking-mlnx."""
 
@@ -122,6 +127,12 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
                         CONF.networking_mlnx.physical_network))
         else:
             cls.network = cls._create_infiniband_network()
+        if (cls.network.get('provider:network_type') == 'vlan' and
+                not cls.is_vlan_binding_allowed(cls.network['id'])):
+            raise cls.skipException(
+                'mlnx_infiniband does not bind ports to VLAN networks here: '
+                'mlnx_sdn_assist does not sync the InfiniBand network, and '
+                '[networking_mlnx] allow_unenforced_pkeys is False')
 
     @classmethod
     def _create_infiniband_network(cls):
@@ -159,6 +170,69 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
             test_utils.call_and_ignore_notfound_exc,
             cls.admin_subnets_client.delete_subnet, subnet['id'])
         return network
+
+    @classmethod
+    def is_client_id_restricted(cls, network_id):
+        """Check if mlnx_sdn_assist restricts client IDs on the network.
+
+        It doesn't let projects set a DHCP client ID on a port of a
+        network whose physical networks are in its [sdn]
+        physical_networks, nor binds a direct port there whose client ID
+        isn't the one derived from its MAC address, whether or not [sdn]
+        sync_enabled is True. This is detected by trying to create a port
+        with a client ID as the primary project. The result is cached for
+        the test class, not inherited by its subclasses.
+
+        :param network_id: an InfiniBand network on physical_network,
+            on which the primary project can create ports.
+        """
+        if '_client_id_restricted' not in cls.__dict__:
+            cls._client_id_restricted = cls._probe_client_id(network_id)
+        return cls._client_id_restricted
+
+    @classmethod
+    def _probe_client_id(cls, network_id):
+        if not utils.is_extension_enabled('extra_dhcp_opt', 'network'):
+            return False
+        ports_client = cls.os_primary.ports_client
+        try:
+            port = ports_client.create_port(
+                network_id=network_id,
+                name=data_utils.rand_name(cls.__name__ + '-client-id-probe'),
+                extra_dhcp_opts=[{'opt_name': 'client-id',
+                                  'opt_value': 'tempest-client-id-probe',
+                                  'ip_version': 4}])['port']
+        except lib_exc.BadRequest as exc:
+            if is_client_id_refusal(exc):
+                return True
+            raise
+        test_utils.call_and_ignore_notfound_exc(ports_client.delete_port,
+                                                port['id'])
+        return False
+
+    @classmethod
+    def is_sdn_synced(cls, network_id):
+        """Check if mlnx_sdn_assist syncs the network to an SDN controller.
+
+        If it does, the controller adds the network's ports to its
+        partition key. Unless [networking_mlnx] sdn_sync says so, this is
+        detected with is_client_id_restricted().
+        """
+        sdn_sync = CONF.networking_mlnx.sdn_sync
+        if sdn_sync != 'auto':
+            return sdn_sync == 'enabled'
+        return cls.is_client_id_restricted(network_id)
+
+    @classmethod
+    def is_vlan_binding_allowed(cls, network_id):
+        """Check if mlnx_infiniband binds ports to VLAN networks.
+
+        It only does if mlnx_sdn_assist syncs the network, so that the SDN
+        controller adds its ports to the network's partition key, or if
+        the Neutron server allows unenforced partition keys.
+        """
+        return (CONF.networking_mlnx.allow_unenforced_pkeys or
+                cls.is_sdn_synced(network_id))
 
     def create_infiniband_port(self, **extra):
         kwargs = {
