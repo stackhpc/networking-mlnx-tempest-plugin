@@ -85,4 +85,17 @@ NetworkingMlnxGroup = [
                     'physical_networks. A test checks that a network on '
                     "physical_network can't also have a segment on it. "
                     'The test is skipped when it is not set.'),
+    cfg.StrOpt('guest_image_ref',
+               help='ID of an image with InfiniBand drivers, such as '
+                    'mlx5_ib and ib_ipoib, and the ip command, for the '
+                    'tests that log in to guests. The tests are skipped '
+                    'when it is not set.'),
+    cfg.StrOpt('guest_flavor_ref',
+               help='ID of the flavor for the guests of the tests that log '
+                    'in to them. If it is not set, [compute] flavor_ref is '
+                    'used.'),
+    cfg.StrOpt('guest_ssh_user',
+               help='User to log in to guests booted from guest_image_ref '
+                    'as. It must be able to run commands with sudo. If it '
+                    'is not set, [validation] image_ssh_user is used.'),
 ]
