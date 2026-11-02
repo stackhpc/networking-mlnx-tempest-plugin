@@ -1,0 +1,18 @@
+---
+features:
+  - |
+    Adds API tests of how networking-mlnx keeps InfiniBand ports in their
+    partition key: that projects can't set DHCP client IDs on networks
+    that ``mlnx_sdn_assist`` syncs, which ports on VLAN networks
+    ``mlnx_infiniband`` binds, and that it doesn't bind a port with the
+    MAC address of a bound port, nor a direct port with another client ID
+    or with two client IDs.
+    The tests bind ports without servers, so with an SDN controller the
+    controller adds GUIDs with no device to partition keys until the
+    tests delete the ports. They need a VLAN range for
+    ``[networking_mlnx] physical_network`` in Neutron's
+    ``network_vlan_ranges``.
+  - |
+    Adds the ``[networking_mlnx] unsynced_physical_network`` option, a
+    physical network with a VLAN range that ``mlnx_sdn_assist`` doesn't
+    sync. A test checks that a synced network can't get a segment on it.

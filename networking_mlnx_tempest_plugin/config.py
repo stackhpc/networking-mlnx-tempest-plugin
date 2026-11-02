@@ -78,4 +78,11 @@ NetworkingMlnxGroup = [
                      'of the Neutron server. If it is True, mlnx_infiniband '
                      'binds ports to VLAN networks on physical networks '
                      'that no SDN controller syncs.'),
+    cfg.StrOpt('unsynced_physical_network',
+               help='A physical network that Neutron has a VLAN range for '
+                    'in network_vlan_ranges, but that mlnx_sdn_assist does '
+                    "not sync, because it isn't in its [sdn] "
+                    'physical_networks. A test checks that a network on '
+                    "physical_network can't also have a segment on it. "
+                    'The test is skipped when it is not set.'),
 ]
