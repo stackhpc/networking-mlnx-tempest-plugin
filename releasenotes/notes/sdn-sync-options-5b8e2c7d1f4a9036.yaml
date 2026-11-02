@@ -1,0 +1,24 @@
+---
+features:
+  - |
+    Adds the ``[networking_mlnx] sdn_sync`` option. With the default,
+    ``auto``, the tests detect whether the ``mlnx_sdn_assist`` mechanism
+    driver syncs ``physical_network`` to an SDN controller, by checking
+    whether a project may set a DHCP client ID on a port. Set it to
+    ``enabled`` or ``disabled`` to skip the detection, for example to
+    ``disabled`` if ``mlnx_sdn_assist`` is enabled with ``[sdn]
+    sync_enabled = False``.
+  - |
+    Adds the ``[networking_mlnx] allow_unenforced_pkeys`` option. Set it to
+    the value of the Neutron server's ``[mlnx] allow_unenforced_pkeys``
+    option, so that the tests know whether ``mlnx_infiniband`` binds ports
+    to VLAN networks that no SDN controller syncs. The default is
+    ``False``.
+other:
+  - |
+    ``test_keep_user_client_id_on_infiniband_port`` is skipped when
+    ``mlnx_sdn_assist`` restricts client IDs on the InfiniBand network, and
+    ``test_keep_user_client_id`` when it refuses the project's client ID,
+    since networking-mlnx now refuses those client IDs there. The tests of
+    ``InfinibandPortTest`` are skipped on a VLAN network unless
+    ``mlnx_infiniband`` binds ports to it.

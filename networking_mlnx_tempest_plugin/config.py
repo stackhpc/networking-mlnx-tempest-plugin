@@ -57,4 +57,45 @@ NetworkingMlnxGroup = [
                default='10.199.0.0/24',
                help='CIDR of the subnet on the InfiniBand networks that the '
                     'tests create.'),
+    cfg.StrOpt('sdn_sync',
+               default='auto',
+               choices=['auto', 'enabled', 'disabled'],
+               help='Whether the mlnx_sdn_assist mechanism driver syncs '
+                    'physical_network to an SDN controller, such as UFM, '
+                    'which adds InfiniBand ports to their network\'s '
+                    'partition key. auto detects it: the driver refuses to '
+                    'let a project set the DHCP client ID of a port on a '
+                    'network whose physical network is in its [sdn] '
+                    'physical_networks, so the tests try that. Without the '
+                    'extra_dhcp_opt extension, auto means disabled. Set it '
+                    'to disabled if mlnx_sdn_assist is enabled with [sdn] '
+                    'sync_enabled = False, since it then still refuses '
+                    'client IDs but syncs nothing. The tests of client IDs '
+                    'always detect whether they are refused.'),
+    cfg.BoolOpt('allow_unenforced_pkeys',
+                default=False,
+                help='The value of the [mlnx] allow_unenforced_pkeys option '
+                     'of the Neutron server. If it is True, mlnx_infiniband '
+                     'binds ports to VLAN networks on physical networks '
+                     'that no SDN controller syncs.'),
+    cfg.StrOpt('unsynced_physical_network',
+               help='A physical network that Neutron has a VLAN range for '
+                    'in network_vlan_ranges, but that mlnx_sdn_assist does '
+                    "not sync, because it isn't in its [sdn] "
+                    'physical_networks. A test checks that a network on '
+                    "physical_network can't also have a segment on it. "
+                    'The test is skipped when it is not set.'),
+    cfg.StrOpt('guest_image_ref',
+               help='ID of an image with InfiniBand drivers, such as '
+                    'mlx5_ib and ib_ipoib, and the ip command, for the '
+                    'tests that log in to guests. The tests are skipped '
+                    'when it is not set.'),
+    cfg.StrOpt('guest_flavor_ref',
+               help='ID of the flavor for the guests of the tests that log '
+                    'in to them. If it is not set, [compute] flavor_ref is '
+                    'used.'),
+    cfg.StrOpt('guest_ssh_user',
+               help='User to log in to guests booted from guest_image_ref '
+                    'as. It must be able to run commands with sudo. If it '
+                    'is not set, [validation] image_ssh_user is used.'),
 ]

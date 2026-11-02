@@ -1,0 +1,12 @@
+---
+features:
+  - |
+    Adds scenario tests that log in to guests: one checks that a guest's
+    InfiniBand port goes down when its Neutron port's ``admin_state_up`` is
+    set to ``False`` and comes back up when it is set to ``True``, and one
+    checks that guests on different VLAN networks can't reach each other
+    over IPoIB. They need an image with InfiniBand drivers, set with the
+    new ``[networking_mlnx] guest_image_ref`` option, and optionally the
+    new ``guest_flavor_ref`` and ``guest_ssh_user`` options. The guests
+    are reached through a floating IP on a project network, so
+    ``[network] public_network_id`` must be set.
