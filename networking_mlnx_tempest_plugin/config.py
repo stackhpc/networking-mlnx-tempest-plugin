@@ -98,4 +98,19 @@ NetworkingMlnxGroup = [
                help='User to log in to guests booted from guest_image_ref '
                     'as. It must be able to run commands with sudo. If it '
                     'is not set, [validation] image_ssh_user is used.'),
+    cfg.BoolOpt('live_migration',
+                default=False,
+                help='Whether to run the test that live-migrates a guest '
+                     'with an InfiniBand port. It needs Nova\'s [compute] '
+                     'live_migration_wait_for_vif_plug = False on all '
+                     'compute hosts, or the migration fails, or is delayed '
+                     'by vif_plugging_timeout, waiting for a '
+                     'network-vif-plugged event of the InfiniBand port. '
+                     'The test cannot detect that, so it is skipped '
+                     'unless this is True. It also needs guest_image_ref, '
+                     '[compute-feature-enabled] live_migration, the '
+                     'binding-extended extension, and two '
+                     'compute hosts with free virtual functions on '
+                     'physical_network, each with an alive '
+                     'neutron-mlnx-agent that maps it.'),
 ]

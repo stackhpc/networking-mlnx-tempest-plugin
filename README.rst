@@ -51,6 +51,17 @@ Tests
   ``network_type`` is ``vlan``, in which case the subnet manager must
   have a partition for each VLAN ID in Neutron's range.
 
+``tests.scenario.test_live_migration.InfinibandLiveMigrationTest``
+  Live-migrates a guest with an InfiniBand port to another compute host
+  with a ``neutron-mlnx-agent``. Nova unplugs the guest's virtual function
+  before the migration and plugs one from the destination host after it.
+  The test checks that the port is then ``ACTIVE`` and bound to the
+  destination host with VIF type ``ib_hostdev`` and a PCI slot, that the
+  guest's InfiniBand port becomes ``ACTIVE`` again with the same GUID, and
+  that, once its IPoIB interface is configured again, the guest can ping a
+  second guest over IPoIB, as it could before the migration. It is skipped unless
+  ``live_migration`` is ``True``.
+
 The tests in ``InfinibandPortTest`` check the port bindings through the
 Neutron and Nova APIs. They don't log in to the guests, so any image that
 boots works.
@@ -93,6 +104,24 @@ Requirements
   functions only limited membership of the default partition, as
   networking-mlnx requires; otherwise the guests reach each other there
   and the test rightly fails.
+* For ``InfinibandLiveMigrationTest``, the image, public network and
+  interface attachment that ``PkeyGuestTest`` needs;
+  ``[compute-feature-enabled] live_migration``; the ``binding-extended``
+  extension, without which Nova doesn't live-migrate servers with SR-IOV
+  ports; at least two enabled compute hosts, each with an alive
+  ``neutron-mlnx-agent`` that maps the InfiniBand physical network and
+  has the same host name as its ``nova-compute`` service; and free
+  virtual functions for the two guests, and one more on the destination
+  host, which may also have the second guest. The test
+  migrates the guest to another of those hosts. It uses block migration
+  if ``[compute-feature-enabled] block_migration_for_live_migration`` is
+  ``True``; otherwise the hosts need shared storage for instances. Nova
+  must have ``[compute] live_migration_wait_for_vif_plug = False`` on all
+  compute hosts, since otherwise Nova waits for a ``network-vif-plugged``
+  event of the InfiniBand port that doesn't come, and the migration fails
+  or, with ``[DEFAULT] vif_plugging_is_fatal = False``, is delayed by
+  ``vif_plugging_timeout``. The test can't
+  detect that, so it only runs when ``live_migration`` is ``True``.
 
 Installation
 ============
@@ -165,16 +194,26 @@ The ``[networking_mlnx]`` section has these options:
   can't get a segment on it. That test is skipped if it is not set.
 
 ``guest_image_ref``
-  ID of an image with InfiniBand drivers, for ``PkeyGuestTest``. Its tests
-  are skipped if it is not set.
+  ID of an image with InfiniBand drivers, for ``PkeyGuestTest`` and
+  ``InfinibandLiveMigrationTest``. Their tests are skipped if it is not
+  set.
 
 ``guest_flavor_ref``
-  ID of the flavor for the guests of ``PkeyGuestTest``. The default is
-  ``[compute] flavor_ref``.
+  ID of the flavor for the guests of ``PkeyGuestTest`` and
+  ``InfinibandLiveMigrationTest``. The default is ``[compute]
+  flavor_ref``.
 
 ``guest_ssh_user``
-  User to log in to the guests of ``PkeyGuestTest`` as. The default is
-  ``[validation] image_ssh_user``.
+  User to log in to the guests of ``PkeyGuestTest`` and
+  ``InfinibandLiveMigrationTest`` as. The default is ``[validation]
+  image_ssh_user``.
+
+``live_migration``
+  Whether to run ``InfinibandLiveMigrationTest``. The default is
+  ``False``. Set it to ``True`` only if Nova has ``[compute]
+  live_migration_wait_for_vif_plug = False`` on all compute hosts, and
+  there are at least two compute hosts with free InfiniBand virtual
+  functions on ``physical_network``.
 
 Running the tests
 =================
