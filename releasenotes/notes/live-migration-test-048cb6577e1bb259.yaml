@@ -1,0 +1,17 @@
+---
+features:
+  - |
+    Adds a scenario test that live-migrates a guest with an InfiniBand port
+    to another host, and checks that the port is bound to a virtual
+    function there, that the guest's InfiniBand port comes back ACTIVE with
+    the same GUID, and that the guest can reach another guest over IPoIB
+    again once its IPoIB interface is configured again. It is skipped unless the new ``[networking_mlnx]
+    live_migration`` option is ``True``, which needs Nova's ``[compute]
+    live_migration_wait_for_vif_plug = False`` on all compute hosts. It
+    also needs ``[compute-feature-enabled] live_migration``,
+    ``[networking_mlnx] guest_image_ref``, the ``binding-extended``
+    extension, and two compute hosts with free
+    virtual functions and an alive ``neutron-mlnx-agent`` that maps
+    ``[networking_mlnx] physical_network``. It uses block migration if
+    ``[compute-feature-enabled] block_migration_for_live_migration`` is
+    ``True``.

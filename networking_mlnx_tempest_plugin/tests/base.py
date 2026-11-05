@@ -10,12 +10,15 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
+import ipaddress
+
 from tempest.common import utils
 from tempest.common import waiters
 from tempest import config
 from tempest.lib.common.utils import data_utils
 from tempest.lib.common.utils import test_utils
 from tempest.lib import exceptions as lib_exc
+from tempest.scenario import manager
 from tempest import test
 
 CONF = config.CONF
@@ -27,6 +30,28 @@ VNIC_TYPE = 'direct'
 # The mechanism driver's client-id prefixes, used when its
 # [mlnx] client_id_hardware option is True and False respectively.
 CLIENT_ID_PREFIXES = ('20:', 'ff:00:00:00:00:00:02:00:00:02:c9:00:')
+
+# The type of IPoIB interfaces in /sys/class/net/*/type (ARPHRD_INFINIBAND).
+IPOIB_TYPE = '32'
+
+# Print the name and hardware address of each IPoIB interface.
+LIST_IPOIB_INTERFACES = (
+    'for dev in /sys/class/net/*; do '
+    'if [ "$(cat "$dev/type" 2>/dev/null)" = %s ]; then '
+    'echo "${dev##*/} $(cat "$dev/address")"; fi; done' % IPOIB_TYPE)
+
+
+def guid_matches_mac(hardware_address, mac_address):
+    """Check if an IPoIB address has the GUID derived from a MAC address.
+
+    The last 8 bytes of an IPoIB hardware address are the port GUID.
+    neutron-mlnx-agent gives a virtual function the GUID derived from its
+    port's MAC address, from its first and last 3 bytes; the 2 bytes in
+    between may differ.
+    """
+    guid = hardware_address.lower().split(':')[-8:]
+    mac = mac_address.lower().split(':')
+    return len(guid) == 8 and guid[:3] + guid[5:] == mac
 
 
 def is_client_id_refusal(exc):
@@ -471,3 +496,155 @@ class BaseInfinibandPortTest(BaseInfinibandTest):
                 self.assert_no_client_id(port)
             else:
                 self.assert_user_client_id(port, user_client_id)
+
+
+class BaseInfinibandGuestTest(InfinibandMixin, manager.NetworkScenarioTest):
+    """Base class for tests that log in to guests with InfiniBand ports.
+
+    The guests need an image with InfiniBand drivers, such as mlx5_ib and
+    ib_ipoib, from [networking_mlnx] guest_image_ref. Each guest has a port
+    on a project network with a floating IP for SSH. The InfiniBand ports
+    are attached after the guests have booted, since cloud-init may fail
+    to configure an InfiniBand interface at boot.
+    """
+
+    @classmethod
+    def skip_checks(cls):
+        super().skip_checks()
+        cls.check_networking_mlnx()
+        cls.check_network_mtu()
+        if not CONF.service_available.nova:
+            raise cls.skipException('Nova is not available')
+        if not CONF.compute_feature_enabled.interface_attach:
+            raise cls.skipException('Interface attachment is not available')
+        if not CONF.networking_mlnx.guest_image_ref:
+            raise cls.skipException(
+                '[networking_mlnx] guest_image_ref is not set')
+        if not CONF.network.public_network_id:
+            raise cls.skipException('[network] public_network_id is not set')
+        if not CONF.network_feature_enabled.floating_ips:
+            raise cls.skipException('Floating IPs are not available')
+        for extension in ('router', 'security-group'):
+            if not utils.is_extension_enabled(extension, 'network'):
+                raise cls.skipException(
+                    'The %s extension is not enabled' % extension)
+
+    @classmethod
+    def setup_clients(cls):
+        super().setup_clients()
+        cls.setup_infiniband_clients()
+        cls.admin_servers_client = cls.os_admin.servers_client
+
+    def setUp(self):
+        super().setUp()
+        self.keypair = self.create_keypair()
+        self.security_group = self.create_security_group()
+
+    def create_guest(self):
+        """Boot a guest and return it and an SSH client for it."""
+        server = self.create_server(
+            image_id=CONF.networking_mlnx.guest_image_ref,
+            flavor=(CONF.networking_mlnx.guest_flavor_ref or
+                    CONF.compute.flavor_ref),
+            key_name=self.keypair['name'],
+            security_groups=[{'name': self.security_group['name']}],
+            wait_until='ACTIVE')
+        floating_ip = self.create_floating_ip(server)
+        ssh = self.get_remote_client(
+            floating_ip['floating_ip_address'],
+            username=(CONF.networking_mlnx.guest_ssh_user or
+                      CONF.validation.image_ssh_user),
+            private_key=self.keypair['private_key'],
+            server=server)
+        return server, ssh
+
+    def attach_port(self, server, port):
+        self.interface_client.create_interface(server['id'],
+                                               port_id=port['id'])
+        waiters.wait_for_interface_status(self.interface_client,
+                                          server['id'], port['id'], 'ACTIVE')
+        return self.wait_for_port_bound(port['id'])
+
+    def detach_port(self, server, port):
+        resp = self.interface_client.delete_interface(server['id'],
+                                                      port['id'])
+        # Instance action events are only shown to admins.
+        waiters.wait_for_interface_detach(
+            self.admin_servers_client, server['id'], port['id'],
+            resp.response['x-openstack-request-id'])
+        return self.wait_for_port_unbound(port['id'])
+
+    def wait_in_guest(self, check, description):
+        """Wait until check() returns a true value, and return it.
+
+        check() runs commands in the guest, and is retried if they fail.
+        """
+        result = []
+
+        def attempt():
+            try:
+                value = check()
+            except lib_exc.SSHExecCommandFailed:
+                return False
+            if value:
+                result.append(value)
+            return bool(value)
+
+        if not test_utils.call_until_true(
+                attempt, CONF.network.build_timeout,
+                CONF.network.build_interval):
+            raise lib_exc.TimeoutException(
+                'Guest did not %s within %s s' % (
+                    description, CONF.network.build_timeout))
+        return result[0]
+
+    def wait_for_ipoib_interface(self, ssh, port):
+        """Wait for the guest's IPoIB interface of a port, and return it.
+
+        It is the interface with the GUID derived from the port's MAC
+        address.
+        """
+        def find():
+            for line in ssh.exec_command(LIST_IPOIB_INTERFACES).splitlines():
+                name, _, address = line.strip().partition(' ')
+                if guid_matches_mac(address, port['mac_address']):
+                    return name
+
+        return self.wait_in_guest(
+            find, 'have an IPoIB interface for port %s with MAC address %s' %
+            (port['id'], port['mac_address']))
+
+    def get_ib_port_state(self, ssh, interface):
+        """Return the state of the InfiniBand port of an IPoIB interface.
+
+        It is read from /sys/class/infiniband/*/ports/1/state of the
+        interface's device, which has a line such as "4: ACTIVE".
+        """
+        output = ssh.exec_command(
+            'cat /sys/class/net/%s/device/infiniband/*/ports/1/state' %
+            interface)
+        return output.strip().partition(':')[2].strip()
+
+    def wait_for_ib_port_state(self, ssh, interface, state):
+        self.wait_in_guest(
+            lambda: self.get_ib_port_state(ssh, interface) == state,
+            'have InfiniBand port state %s on %s' % (state, interface))
+
+    def configure_ipoib_interface(self, ssh, interface, port):
+        """Give an IPoIB interface its port's fixed IP address.
+
+        The InfiniBand subnets have no DHCP and no gateway.
+        """
+        prefixlen = ipaddress.ip_network(
+            CONF.networking_mlnx.subnet_cidr).prefixlen
+        address = port['fixed_ips'][0]['ip_address']
+        # Keep NetworkManager from trying DHCP on the interface and
+        # removing the address.
+        ssh.exec_command(
+            'if command -v nmcli >/dev/null; then '
+            'sudo nmcli device set %(dev)s managed no; fi && '
+            'sudo ip link set %(dev)s up && '
+            'sudo ip addr add %(address)s/%(prefixlen)s dev %(dev)s' % {
+                'dev': interface, 'address': address,
+                'prefixlen': prefixlen})
+        return address
