@@ -1,0 +1,12 @@
+---
+features:
+  - |
+    ``PkeyGuestTest`` has tests that partitions keep guests apart: guests
+    on one VLAN network reach each other, using their network's pkey; a
+    guest gets no carrier on, and can't reach another network over, an
+    IPoIB interface for that network's pkey; and guests on different
+    networks can't reach each other in the default partition. A new
+    ``[networking_mlnx] shared_default_partition`` option says that the
+    subnet manager makes every port a full member of the default
+    partition, in which case the last test checks that the guests do reach
+    each other there.

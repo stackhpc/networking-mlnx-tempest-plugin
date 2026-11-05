@@ -78,6 +78,14 @@ NetworkingMlnxGroup = [
                      'of the Neutron server. If it is True, mlnx_infiniband '
                      'binds ports to VLAN networks on physical networks '
                      'that no SDN controller syncs.'),
+    cfg.BoolOpt('shared_default_partition',
+                default=False,
+                help='True if the subnet manager makes every port a full '
+                     'member of the default partition (ALL=full), as on a '
+                     'fabric shared with hosts that rely on it. Guests on '
+                     'different networks can then reach each other over '
+                     'the default partition, so the test that they can\'t '
+                     'is skipped.'),
     cfg.StrOpt('unsynced_physical_network',
                help='A physical network that Neutron has a VLAN range for '
                     'in network_vlan_ranges, but that mlnx_sdn_assist does '

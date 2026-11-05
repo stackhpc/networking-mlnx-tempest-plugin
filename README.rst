@@ -43,13 +43,33 @@ Tests
 ``tests.scenario.test_pkey_guest.PkeyGuestTest``
   Logs in to guests to check that a guest's InfiniBand port goes down
   when its port's ``admin_state_up`` is set to ``False`` and comes back up
-  when it is set to ``True``, and that guests on different VLAN networks
-  with the same subnet can't reach each other over IPoIB, while guests on
-  the same network can. They are skipped unless ``guest_image_ref`` is
-  set. The isolation test only runs if ``mlnx_sdn_assist`` syncs the
-  network, or if ``allow_unenforced_pkeys`` is ``True`` and
-  ``network_type`` is ``vlan``, in which case the subnet manager must
-  have a partition for each VLAN ID in Neutron's range.
+  when it is set to ``True``, and that partitions keep guests apart:
+
+  * guests on the same VLAN network reach each other over IPoIB, and with
+    an SDN controller each guest's IPoIB interface uses its network's pkey,
+    which the controller must put at index 0 of the port's pkey table
+    (UFM's ``index0``); an IPoIB child interface for the network's pkey
+    works too, which shows that the child interfaces the other tests use
+    work;
+  * guests on different VLAN networks with the same subnet can't reach
+    each other (``test_networks_are_isolated``), while guests on the same
+    network can;
+  * a guest that adds an IPoIB child interface for another network's pkey
+    gets no carrier on it, since its port isn't in that partition, and
+    can't reach that network's guests;
+  * guests on different networks are only limited members of the default
+    partition, 0x7fff, so they can't reach each other there, over IPoIB
+    child interfaces for it; with ``shared_default_partition`` they are
+    full members, 0xffff, and must reach each other instead.
+
+  They are skipped unless ``guest_image_ref`` is set. The tests on
+  same-network and different-network guests only run if ``mlnx_sdn_assist``
+  syncs the network, or if ``allow_unenforced_pkeys`` is ``True`` and
+  ``network_type`` is ``vlan``, in which case the subnet manager must have
+  a partition for each VLAN ID in Neutron's range. The child interface
+  tests only run if ``mlnx_sdn_assist`` syncs the network. The child
+  interfaces get point-to-point addresses from 198.18.0.0/15, which must
+  not be used by anything the guests reach.
 
 ``tests.scenario.test_live_migration.InfinibandLiveMigrationTest``
   Live-migrates a guest with an InfiniBand port to another compute host
@@ -87,7 +107,7 @@ Requirements
 * For ``PkeyTest``, the ``agent`` extension and an alive
   ``neutron-mlnx-agent`` that maps the InfiniBand physical network, and for
   its segment test the ``segment`` extension.
-* For ``PkeyTest`` and ``test_networks_are_isolated``, a VLAN range for the
+* For ``PkeyTest`` and the guest tests on VLAN networks, a VLAN range for the
   InfiniBand physical network in Neutron's ``network_vlan_ranges``, since
   they create VLAN networks without a segmentation ID. They are skipped if
   Neutron can't create them.
@@ -95,7 +115,7 @@ Requirements
   ``mlx5_ib`` and ``ib_ipoib``, and the ``ip`` and ``ping`` commands, whose
   user can run ``sudo`` without a password; a public network for floating IPs; interface attachment; and
   free virtual functions: one for ``test_vf_link_follows_port_admin_state``
-  and two for ``test_networks_are_isolated``. The tests attach the
+  and two for each of the other ``PkeyGuestTest`` tests. The tests attach the
   InfiniBand ports after boot and configure them with ``ip``, and tell
   NetworkManager, if the image has it, not to manage them; cloud-init must
   not reconfigure hot-plugged interfaces. The guests' ports on the project
@@ -108,10 +128,11 @@ Requirements
   netplan or ifupdown, with a rule that matches new interfaces, for example
   one that runs DHCP on every interface, configure it to leave InfiniBand
   interfaces alone, or it may replace the address the tests set.
-* For ``test_networks_are_isolated``, the subnet manager must give virtual
-  functions only limited membership of the default partition, as
-  networking-mlnx requires; otherwise the guests reach each other there
-  and the test rightly fails.
+* For ``test_networks_are_isolated`` and the default partition test, the
+  subnet manager must give virtual functions only limited membership of the
+  default partition, as networking-mlnx requires; otherwise the guests reach
+  each other there and the tests rightly fail. On a fabric that gives every
+  port full membership, set ``shared_default_partition``.
 * For ``InfinibandLiveMigrationTest``, the image, public network and
   interface attachment that ``PkeyGuestTest`` needs;
   ``[compute-feature-enabled] live_migration``; the ``binding-extended``
@@ -195,6 +216,13 @@ The ``[networking_mlnx]`` section has these options:
 ``allow_unenforced_pkeys``
   The value of the Neutron server's ``[mlnx] allow_unenforced_pkeys``
   option. The default is ``False``.
+
+``shared_default_partition``
+  ``True`` if the subnet manager makes every port a full member of the
+  default partition (``ALL=full``), as on a fabric shared with hosts that
+  rely on it. The default partition test then checks that guests on
+  different networks reach each other there, instead of that they can't.
+  The default is ``False``.
 
 ``unsynced_physical_network``
   A physical network with a VLAN range in ``network_vlan_ranges`` that
