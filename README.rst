@@ -92,14 +92,22 @@ Requirements
   they create VLAN networks without a segmentation ID. They are skipped if
   Neutron can't create them.
 * For ``PkeyGuestTest``, an image with InfiniBand drivers, such as
-  ``mlx5_ib`` and ``ib_ipoib``, and the ``ip`` command, whose user can run
-  ``sudo``; a public network for floating IPs; interface attachment; and
+  ``mlx5_ib`` and ``ib_ipoib``, and the ``ip`` and ``ping`` commands, whose
+  user can run ``sudo`` without a password; a public network for floating IPs; interface attachment; and
   free virtual functions: one for ``test_vf_link_follows_port_admin_state``
   and two for ``test_networks_are_isolated``. The tests attach the
   InfiniBand ports after boot and configure them with ``ip``, and tell
   NetworkManager, if the image has it, not to manage them; cloud-init must
   not reconfigure hot-plugged interfaces. The guests' ports on the project
   network get ``[network] port_vnic_type``, if it is set.
+
+  The guest tests have only been run with a Rocky Linux 10 image. Other
+  images should work if nothing but NetworkManager manages hot-plugged
+  interfaces. If the image has ``nmcli``, NetworkManager must be running,
+  or the tests fail to configure the interfaces. If the image uses another tool, such as systemd-networkd,
+  netplan or ifupdown, with a rule that matches new interfaces, for example
+  one that runs DHCP on every interface, configure it to leave InfiniBand
+  interfaces alone, or it may replace the address the tests set.
 * For ``test_networks_are_isolated``, the subnet manager must give virtual
   functions only limited membership of the default partition, as
   networking-mlnx requires; otherwise the guests reach each other there
